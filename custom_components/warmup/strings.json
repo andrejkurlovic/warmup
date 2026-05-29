@@ -1,0 +1,43 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Warmup",
+        "description": "Enter your Warmup account credentials from my.warmup.com.",
+        "data": {
+          "username": "Email address",
+          "password": "Password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate Warmup",
+        "description": "Your Warmup session expired. Please enter your credentials again.",
+        "data": {
+          "username": "Email address",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid email address or password.",
+      "cannot_connect": "Unable to connect to the Warmup service. Check your network.",
+      "unknown": "An unexpected error occurred. See the logs for details."
+    },
+    "abort": {
+      "already_configured": "This Warmup account is already configured.",
+      "reauth_successful": "Re-authentication was successful."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "floor_temperature": { "name": "Floor temperature" },
+      "air_temperature": { "name": "Air temperature" },
+      "away_temperature": { "name": "Away temperature" },
+      "comfort_temperature": { "name": "Comfort temperature" },
+      "sleep_temperature": { "name": "Sleep temperature" },
+      "override_temperature": { "name": "Override temperature" },
+      "energy": { "name": "Energy" },
+      "cost": { "name": "Cost" }
+    }
+  }
+}

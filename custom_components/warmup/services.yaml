@@ -1,12 +1,25 @@
 set_override:
-  description: Set or update a temperature override.
+  name: Set temperature override
+  description: Override the target temperature for a thermostat until a given time.
+  target:
+    entity:
+      domain: climate
+      integration: warmup
   fields:
-    entity_id:
-      description: Name of Warmup entity.
-      example: "Kitchen"
     temperature:
-      description: Temperature to set in 0.5 increments
-      example: "22.5"
+      name: Temperature
+      description: Override temperature in °C (0.5° steps).
+      required: true
+      selector:
+        number:
+          min: 5
+          max: 35
+          step: 0.5
+          unit_of_measurement: "°C"
     until:
-      description: When the override should end, enclose in quotes otherwise the colon causes problems. Defaults to 1 hour from now.
+      name: Until
+      description: "Time the override ends (HH:MM). Defaults to 1 hour from now."
+      required: false
       example: "14:00"
+      selector:
+        text:

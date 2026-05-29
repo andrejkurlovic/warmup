@@ -1,0 +1,7 @@
+DOMAIN = "warmup"
+
+CONST_MODE_PROGRAM = "prog"
+CONST_MODE_FIXED = "fixed"
+CONST_MODE_AWAY = "away"
+CONST_MODE_FROST = "frost"
+CONST_MODE_OFF = "off"
