@@ -36,6 +36,16 @@ _GRAPHQL_QUERY = (
     "hasPolled isFaultAir isFaultFloor1 isFaultFloor2 } } } } }"
 )
 
+# Diagnostic-only schedule probe query — NOT used in normal polling.
+# Fetches only location/room IDs plus the schedule field to minimise
+# the risk of conflicting with unsupported fields in the normal query.
+_SCHEDULE_PROBE_QUERY = (
+    "query QUERY{ user{ allLocations: locations { id "
+    "rooms{ id roomName "
+    "schedule{ type mode day node value{ start end temp{ temp } } } "
+    "} } } }"
+)
+
 # GQL mutation to cancel an active override
 _CANCEL_OVERRIDE_MUTATION = (
     "mutation QUERY{{room: cancelOverride(lid:{loc_id},rid:{room_id})"
@@ -159,6 +169,51 @@ class WarmupAPI:
         except (KeyError, TypeError) as exc:
             _log_api_failure("graphql", _GRAPHQL_URL, body=str(data)[:500], exc=exc, has_token=True)
             raise WarmupError(f"Unexpected GQL response") from exc
+
+    async def fetch_room_schedule(self, location_id: str, room_id: str) -> list | None:
+        """Diagnostic probe: fetch schedule for one room without touching normal polling.
+
+        Returns the raw schedule list from the Warmup API, or None if the field is
+        missing/empty. Raises WarmupError on HTTP or GQL failure — caller must handle.
+        Never called during setup or normal poll cycles.
+        """
+        if self._token is None:
+            raise WarmupError("Not authenticated")
+        headers = {**_BASE_HEADERS, "warmup-authorization": str(self._token)}
+        try:
+            async with self._session.post(
+                _GRAPHQL_URL, headers=headers, json={"query": _SCHEDULE_PROBE_QUERY}
+            ) as resp:
+                if resp.status != 200:
+                    rb = await resp.text()
+                    _log_api_failure(
+                        "schedule_probe", _GRAPHQL_URL,
+                        status=resp.status, body=rb, has_token=True,
+                    )
+                    raise WarmupError(f"schedule probe HTTP {resp.status}")
+                data = await resp.json(content_type=None)
+        except aiohttp.ClientError as exc:
+            _log_api_failure("schedule_probe", _GRAPHQL_URL, exc=exc, has_token=True)
+            raise WarmupError(str(exc)) from exc
+        if data.get("errors"):
+            _log_api_failure(
+                "schedule_probe", _GRAPHQL_URL,
+                body=str(data["errors"])[:1000], has_token=True,
+            )
+            raise WarmupError(f"schedule probe GQL error: {data['errors']}")
+        try:
+            for loc in data["data"]["user"]["allLocations"]:
+                if str(loc["id"]) == str(location_id):
+                    for room in loc["rooms"]:
+                        if str(room["id"]) == str(room_id):
+                            return room.get("schedule") or None
+        except (KeyError, TypeError) as exc:
+            _log_api_failure(
+                "schedule_probe", _GRAPHQL_URL,
+                body=str(data)[:500], exc=exc, has_token=True,
+            )
+            raise WarmupError("Unexpected schedule probe response") from exc
+        return None  # location/room not found in response
 
     async def set_location_mode(self, location_id: str, mode: str) -> None:
         """Set a location-level mode (e.g. 'frost', 'off')."""

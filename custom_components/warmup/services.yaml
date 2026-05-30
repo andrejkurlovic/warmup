@@ -44,3 +44,18 @@ set_programme:
     entity:
       domain: climate
       integration: warmup
+
+fetch_schedule_diagnostics:
+  name: Probe schedule data (diagnostic)
+  description: >
+    DIAGNOSTIC / READ-ONLY. Probes the Warmup GraphQL API for schedule data for
+    the selected thermostat room without affecting normal polling or heating.
+    The result (or a clear error) is written to the Home Assistant log at WARNING
+    level. Use Developer Tools → Actions to call this service, then check the
+    HA log for a line beginning "WarmUp schedule probe:".
+    Purpose: confirm whether the schedule field is supported on your account
+    before implementing schedule editing.
+  target:
+    entity:
+      domain: climate
+      integration: warmup
