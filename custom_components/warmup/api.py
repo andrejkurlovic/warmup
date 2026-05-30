@@ -41,9 +41,7 @@ _GRAPHQL_QUERY = (
 # the risk of conflicting with unsupported fields in the normal query.
 _SCHEDULE_PROBE_QUERY = (
     "query QUERY{ user{ allLocations: locations { id "
-    "rooms{ id roomName "
-    "schedule{ type mode day node value{ start end temp{ temp } } } "
-    "} } } }"
+    "rooms{ id roomName schedule } } } }"
 )
 
 # GQL mutation to cancel an active override
