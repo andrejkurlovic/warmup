@@ -272,19 +272,50 @@ class WarmupAPI:
             _log_api_failure("cancelOverride", _GRAPHQL_URL, body=str(data["errors"])[:500], has_token=True)
             raise WarmupError(f"cancelOverride GQL error: {data['errors']}")
 
-    async def set_schedule(self, room_id: str, schedule: list) -> None:
-        """Write a validated weekly schedule via V1 setProgramme."""
-        await self._post_control("setProgramme", {
-            "account": {"email": self._email, "token": self._token},
-            "request": {
-                "method": "setProgramme",
-                "roomId": room_id,
-                "type": 0,
-                "roomMode": "prog",
-                "fixed": {},
-                "schedule": schedule,
-            },
-        })
+    async def set_schedule(
+        self,
+        room_id: str,
+        schedule: list,
+        comfort_temp: str,
+        setback_temp: str,
+        sleep_temp: str,
+    ) -> None:
+        """Convert GQL DayScheduleV2 list → V1 ProgramSchedule and write via setProgramme.
+
+        The GQL read format (per-day array) differs from the V1 write format (ProgramSchedule
+        object with comfortTemp/days/nodes). Days sharing identical period patterns are grouped
+        and each group is written with one setProgramme call.
+        """
+        # Group days by their time-period signature
+        pattern_groups: dict[tuple, list[int]] = {}
+        pattern_nodes: dict[tuple, list[dict]] = {}
+        for entry in schedule:
+            periods = entry.get("value", [])
+            key = tuple((p["start"], p["end"], p["temp"]) for p in periods)
+            pattern_groups.setdefault(key, []).append(int(entry["day"]))
+            pattern_nodes[key] = [
+                {"start": p["start"], "end": p["end"], "temp": p["temp"]}
+                for p in periods
+            ]
+
+        for key, days in pattern_groups.items():
+            v1_sched = {
+                "comfortTemp": {"temp": comfort_temp},
+                "setbackTemp": {"temp": setback_temp},
+                "sleepTemp": {"temp": sleep_temp},
+                "sleepActive": "0",
+                "days": sorted(days),
+                "nodes": pattern_nodes[key],
+            }
+            await self._post_control("setProgramme", {
+                "account": {"email": self._email, "token": self._token},
+                "request": {
+                    "method": "setProgramme",
+                    "roomId": room_id,
+                    "roomMode": "prog",
+                    "schedule": v1_sched,
+                },
+            })
 
     async def _post_control(self, operation: str, body: dict[str, Any]) -> None:
         try:
