@@ -9,7 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_ID, ATTR_TEMPERATURE, CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import config_validation as cv, entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import WarmupAPI
@@ -48,10 +48,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entity_ids: list[str] = call.data[ATTR_ENTITY_ID]
         temperature: float = call.data[ATTR_TEMPERATURE]
         until: str = call.data.get(_ATTR_UNTIL, (datetime.now() + timedelta(hours=1)).strftime("%H:%M"))
+        ent_reg = er.async_get(hass)
         for entry_coordinator in hass.data[DOMAIN].values():
             for sn, device in entry_coordinator.data.items():
-                climate_entity_id = f"climate.warmup_{sn.lower()}"
-                if climate_entity_id in entity_ids:
+                eid = ent_reg.async_get_entity_id("climate", DOMAIN, f"warmup_{sn}")
+                if eid in entity_ids:
                     await entry_coordinator.api.set_override(device.room_id, temperature, until)
                     await entry_coordinator.async_request_refresh()
 
@@ -60,10 +61,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def handle_cancel_override(call: ServiceCall) -> None:
         entity_ids: list[str] = call.data[ATTR_ENTITY_ID]
+        ent_reg = er.async_get(hass)
         for entry_coordinator in hass.data[DOMAIN].values():
             for sn, device in entry_coordinator.data.items():
-                climate_entity_id = f"climate.warmup_{sn.lower()}"
-                if climate_entity_id in entity_ids:
+                eid = ent_reg.async_get_entity_id("climate", DOMAIN, f"warmup_{sn}")
+                if eid in entity_ids:
                     await entry_coordinator.api.cancel_override(device.location_id, device.room_id)
                     await entry_coordinator.async_request_refresh()
 
