@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "title": "Connect to Warmup",
+        "title": "Connect to Warmup 4iE+",
         "description": "Enter your Warmup account credentials from my.warmup.com.",
         "data": {
           "username": "Email address",
@@ -10,7 +10,7 @@
         }
       },
       "reauth_confirm": {
-        "title": "Re-authenticate Warmup",
+        "title": "Re-authenticate Warmup 4iE+",
         "description": "Your Warmup session expired. Please enter your credentials again.",
         "data": {
           "username": "Email address",
