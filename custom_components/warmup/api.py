@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import urlparse
 
 import aiohttp
 
@@ -23,12 +24,13 @@ _BASE_HEADERS: dict[str, str] = {
 _TOKEN_URL = "https://api.warmup.com/apps/app/v1"
 _GRAPHQL_URL = "https://apil.warmup.com/graphql"
 
+# schedule{} field removed — returned 409 on this account's API version.
+# Deferred until confirmed safe on a live account.
 _GRAPHQL_QUERY = (
     "query QUERY{ user{ allLocations: locations { id name locModeInt "
     "rooms{ id roomName "
     "runModeInt targetTemp currentTemp awayTemp comfortTemp cost energy fixedTemp "
     "overrideTemp overrideDur roomModeInt sleepTemp "
-    "schedule{ type mode day node value{ start end temp{ temp } } } "
     "thermostat4ies{ id deviceSN "
     "minTemp maxTemp airTemp floor1Temp floor2Temp heatingTargetInt "
     "hasPolled isFaultAir isFaultFloor1 isFaultFloor2 } } } } }"
@@ -59,6 +61,33 @@ ROOM_MODE: dict[int, str] = {1: "prog", 3: "fixed"}
 HEATING_TARGET: dict[int, str] = {0: "floor", 1: "air"}
 
 
+def _url_path(url: str) -> str:
+    """Return host+path of a URL without scheme or query string (safe to log)."""
+    p = urlparse(url)
+    return f"{p.netloc}{p.path}"
+
+
+def _log_api_failure(
+    operation: str,
+    url: str,
+    *,
+    status: int | None = None,
+    body: str | None = None,
+    exc: BaseException | None = None,
+    has_token: bool = False,
+) -> None:
+    """Log an API failure without leaking credentials."""
+    parts = [f"WarmUp API failure: operation={operation}", f"endpoint={_url_path(url)}"]
+    if status is not None:
+        parts.append(f"status={status}")
+    if exc is not None:
+        parts.append(f"exc={type(exc).__name__}: {exc}")
+    parts.append(f"auth_token_present={has_token}")
+    if body:
+        parts.append(f"body={body[:1000]}")
+    _LOGGER.error(" | ".join(parts))
+
+
 class WarmupAuthError(Exception):
     """Raised when credentials are rejected."""
 
@@ -86,11 +115,22 @@ class WarmupAPI:
                 "appId": "WARMUP-APP-V001",
             }
         }
-        async with self._session.post(_TOKEN_URL, headers=_BASE_HEADERS, json=body) as resp:
-            if resp.status != 200:
-                raise WarmupAuthError(f"HTTP {resp.status}")
-            data = await resp.json(content_type=None)
+        try:
+            async with self._session.post(_TOKEN_URL, headers=_BASE_HEADERS, json=body) as resp:
+                if resp.status != 200:
+                    rb = await resp.text()
+                    _log_api_failure("login", _TOKEN_URL, status=resp.status, body=rb, has_token=False)
+                    raise WarmupAuthError(f"HTTP {resp.status}")
+                data = await resp.json(content_type=None)
+        except aiohttp.ClientError as exc:
+            _log_api_failure("login", _TOKEN_URL, exc=exc, has_token=False)
+            raise WarmupAuthError(str(exc)) from exc
         if data.get("status", {}).get("result") != "success":
+            _log_api_failure(
+                "login", _TOKEN_URL,
+                body=str(data.get("response", {}))[:500],
+                has_token=False,
+            )
             raise WarmupAuthError("Invalid credentials")
         self._token = data["response"]["token"]
 
@@ -99,20 +139,30 @@ class WarmupAPI:
         if self._token is None:
             raise WarmupError("Not authenticated")
         headers = {**_BASE_HEADERS, "warmup-authorization": str(self._token)}
-        async with self._session.post(_GRAPHQL_URL, headers=headers, json={"query": _GRAPHQL_QUERY}) as resp:
-            if resp.status != 200:
-                raise WarmupError(f"HTTP {resp.status}")
-            data = await resp.json(content_type=None)
+        try:
+            async with self._session.post(
+                _GRAPHQL_URL, headers=headers, json={"query": _GRAPHQL_QUERY}
+            ) as resp:
+                if resp.status != 200:
+                    rb = await resp.text()
+                    _log_api_failure("graphql", _GRAPHQL_URL, status=resp.status, body=rb, has_token=True)
+                    raise WarmupError(f"HTTP {resp.status}")
+                data = await resp.json(content_type=None)
+        except aiohttp.ClientError as exc:
+            _log_api_failure("graphql", _GRAPHQL_URL, exc=exc, has_token=True)
+            raise WarmupError(str(exc)) from exc
         if data.get("errors"):
+            _log_api_failure("graphql", _GRAPHQL_URL, body=str(data["errors"])[:500], has_token=True)
             raise WarmupError(f"GraphQL error: {data['errors']}")
         try:
             return data["data"]["user"]["allLocations"]
         except (KeyError, TypeError) as exc:
-            raise WarmupError(f"Unexpected GQL response: {data}") from exc
+            _log_api_failure("graphql", _GRAPHQL_URL, body=str(data)[:500], exc=exc, has_token=True)
+            raise WarmupError(f"Unexpected GQL response") from exc
 
     async def set_location_mode(self, location_id: str, mode: str) -> None:
         """Set a location-level mode (e.g. 'frost', 'off')."""
-        await self._post_control({
+        await self._post_control("setModes", {
             "account": {"email": self._email, "token": self._token},
             "request": {
                 "method": "setModes",
@@ -132,11 +182,11 @@ class WarmupAPI:
         }
         if temperature is not None:
             body["request"]["fixed"] = {"fixedTemp": f"{int(temperature * 10):03d}"}
-        await self._post_control(body)
+        await self._post_control("setProgramme", body)
 
     async def set_override(self, room_id: str, temperature: float, until: str) -> None:
         """Set a timed temperature override."""
-        await self._post_control({
+        await self._post_control("setOverride", {
             "account": {"email": self._email, "token": self._token},
             "request": {
                 "method": "setOverride",
@@ -155,19 +205,33 @@ class WarmupAPI:
             loc_id=location_id, room_id=room_id
         )
         headers = {**_BASE_HEADERS, "warmup-authorization": str(self._token)}
-        async with self._session.post(
-            _GRAPHQL_URL, headers=headers, json={"query": mutation}
-        ) as resp:
-            if resp.status != 200:
-                raise WarmupError(f"cancelOverride HTTP {resp.status}")
-            data = await resp.json(content_type=None)
+        try:
+            async with self._session.post(
+                _GRAPHQL_URL, headers=headers, json={"query": mutation}
+            ) as resp:
+                if resp.status != 200:
+                    rb = await resp.text()
+                    _log_api_failure("cancelOverride", _GRAPHQL_URL, status=resp.status, body=rb, has_token=True)
+                    raise WarmupError(f"cancelOverride HTTP {resp.status}")
+                data = await resp.json(content_type=None)
+        except aiohttp.ClientError as exc:
+            _log_api_failure("cancelOverride", _GRAPHQL_URL, exc=exc, has_token=True)
+            raise WarmupError(str(exc)) from exc
         if data.get("errors"):
+            _log_api_failure("cancelOverride", _GRAPHQL_URL, body=str(data["errors"])[:500], has_token=True)
             raise WarmupError(f"cancelOverride GQL error: {data['errors']}")
 
-    async def _post_control(self, body: dict[str, Any]) -> None:
-        async with self._session.post(_TOKEN_URL, headers=_BASE_HEADERS, json=body) as resp:
-            if resp.status != 200:
-                raise WarmupError(f"HTTP {resp.status}")
-            data = await resp.json(content_type=None)
+    async def _post_control(self, operation: str, body: dict[str, Any]) -> None:
+        try:
+            async with self._session.post(_TOKEN_URL, headers=_BASE_HEADERS, json=body) as resp:
+                if resp.status != 200:
+                    rb = await resp.text()
+                    _log_api_failure(operation, _TOKEN_URL, status=resp.status, body=rb, has_token=True)
+                    raise WarmupError(f"HTTP {resp.status}")
+                data = await resp.json(content_type=None)
+        except aiohttp.ClientError as exc:
+            _log_api_failure(operation, _TOKEN_URL, exc=exc, has_token=True)
+            raise WarmupError(str(exc)) from exc
         if data.get("status", {}).get("result") != "success":
-            raise WarmupError(f"Control command failed: {data}")
+            _log_api_failure(operation, _TOKEN_URL, body=str(data.get("response", {}))[:500], has_token=True)
+            raise WarmupError(f"Control command failed: {data.get('response', {})}")
