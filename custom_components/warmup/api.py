@@ -1,6 +1,7 @@
 """Async API client for the Warmup cloud service."""
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 from urllib.parse import urlparse
@@ -65,6 +66,68 @@ RUN_MODE: dict[int, str] = {
 }
 ROOM_MODE: dict[int, str] = {1: "prog", 3: "fixed"}
 HEATING_TARGET: dict[int, str] = {0: "floor", 1: "air"}
+
+# GQL returns day as an integer 0-6. Android Day.java ordinals: SUNDAY=0 … SATURDAY=6.
+# Gson serialises the Day enum by name() (no @SerializedName, no registered adapter).
+_DAY_INT_TO_NAME: list[str] = [
+    "SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY",
+]
+
+
+def gql_schedule_to_v1_groups(
+    schedule: list,
+    comfort_temp: str,
+    setback_temp: str,
+    sleep_temp: str,
+) -> list[dict]:
+    """Convert a GQL DayScheduleV2 list to Android V1 ProgramSchedule dicts.
+
+    Each returned dict is the ``schedule`` object for one setProgramme call.
+    Days that share identical (start, end) period patterns are merged into one
+    group, matching EditProgramSelectedDaysFragment behaviour in the Android app.
+
+    Field shapes proven by Android decompilation:
+      comfortTemp/setbackTemp/sleepTemp  — 3-digit zero-padded string scalar
+          (TemperatureJsonAdapter.write → jsonWriter.value(getServerTempInString()))
+      sleepActive                        — "1"  (SimulateRoomDetailsV2JsonResponse.HEATING_TARGET)
+      days                               — enum name strings, e.g. ["MONDAY", "TUESDAY"]
+          (Gson default enum serialisation via name(); no Day type adapter registered)
+      nodes[].temp                       — ""  (EditProgramSelectedDaysFragment:177
+          programScheduleNode.setTemp(""); actual temps live at schedule level)
+
+    Args:
+        schedule:     raw list from the GQL ``schedule`` field.
+        comfort_temp: 3-digit tenths string, e.g. "220" (= 22.0 °C).
+        setback_temp: 3-digit tenths string, e.g. "160".
+        sleep_temp:   3-digit tenths string, e.g. "180".
+    """
+    pattern_groups: dict[tuple, list[str]] = {}
+    pattern_nodes: dict[tuple, list[dict]] = {}
+
+    for entry in schedule:
+        periods = entry.get("value", [])
+        # Group by time-window signature only. Period temp is not part of the
+        # V1 node shape (nodes always carry temp="").
+        key = tuple((p["start"], p["end"]) for p in periods)
+        day_name = _DAY_INT_TO_NAME[int(entry["day"])]
+        pattern_groups.setdefault(key, []).append(day_name)
+        if key not in pattern_nodes:
+            pattern_nodes[key] = [
+                {"start": p["start"], "end": p["end"], "temp": ""}
+                for p in periods
+            ]
+
+    return [
+        {
+            "comfortTemp": comfort_temp,
+            "setbackTemp": setback_temp,
+            "sleepTemp": sleep_temp,
+            "sleepActive": "1",
+            "days": day_names,
+            "nodes": pattern_nodes[key],
+        }
+        for key, day_names in pattern_groups.items()
+    ]
 
 
 def _url_path(url: str) -> str:
@@ -279,48 +342,43 @@ class WarmupAPI:
         comfort_temp: str,
         setback_temp: str,
         sleep_temp: str,
-    ) -> None:
-        """Convert GQL DayScheduleV2 list → V1 ProgramSchedule and write via setProgramme.
+        *,
+        dry_run: bool = False,
+    ) -> list[dict]:
+        """Write a weekly schedule via one setProgramme call per day-pattern group.
 
-        The GQL read format (per-day array) differs from the V1 write format (ProgramSchedule
-        object with comfortTemp/days/nodes). Days sharing identical period patterns are grouped
-        and each group is written with one setProgramme call.
+        ``comfort_temp``, ``setback_temp``, ``sleep_temp`` must be 3-digit
+        zero-padded tenths-of-a-degree strings (e.g. "220" = 22.0 °C).
+        Convert from a float via ``f"{int(temp * 10):03d}"``.
+
+        When ``dry_run=True`` the payload is logged at WARNING level and no
+        HTTP request is made.  Returns a list of request bodies (token redacted)
+        so the caller can inspect or assert against the Android-proven shape.
         """
-        # Group days by their time-period signature
-        pattern_groups: dict[tuple, list[int]] = {}
-        pattern_nodes: dict[tuple, list[dict]] = {}
-        for entry in schedule:
-            periods = entry.get("value", [])
-            key = tuple((p["start"], p["end"], p["temp"]) for p in periods)
-            pattern_groups.setdefault(key, []).append(int(entry["day"]))
-            pattern_nodes[key] = [
-                {"start": p["start"], "end": p["end"], "temp": p["temp"]}
-                for p in periods
-            ]
+        groups = gql_schedule_to_v1_groups(schedule, comfort_temp, setback_temp, sleep_temp)
 
-        # Temperature.java: int mTemp (tenths). Serializes as integer, not string.
-        ct = int(comfort_temp)
-        st = int(setback_temp)
-        sl = int(sleep_temp)
-
-        for key, days in pattern_groups.items():
-            v1_sched = {
-                "comfortTemp": {"temp": ct},
-                "setbackTemp": {"temp": st},
-                "sleepTemp": {"temp": sl},
-                "sleepActive": "0",
-                "days": sorted(days),
-                "nodes": pattern_nodes[key],
-            }
-            await self._post_control("setProgramme", {
+        redacted: list[dict] = []
+        for sched in groups:
+            body: dict[str, Any] = {
                 "account": {"email": self._email, "token": self._token},
                 "request": {
                     "method": "setProgramme",
                     "roomId": room_id,
                     "roomMode": "prog",
-                    "schedule": v1_sched,
+                    "schedule": sched,
                 },
-            })
+            }
+            log_body = {**body, "account": {"email": self._email, "token": "***"}}
+            redacted.append(log_body)
+            if dry_run:
+                _LOGGER.warning(
+                    "set_schedule DRY RUN (not sent):\n%s",
+                    json.dumps(log_body, indent=2),
+                )
+            else:
+                await self._post_control("setProgramme", body)
+
+        return redacted
 
     async def _post_control(self, operation: str, body: dict[str, Any]) -> None:
         try:
