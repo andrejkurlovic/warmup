@@ -107,6 +107,23 @@ class WarmupClimate(CoordinatorEntity[WarmupCoordinator], ClimateEntity):
             return PRESET_AWAY
         return PRESET_HOME
 
+    @property
+    def extra_state_attributes(self) -> dict:
+        d = self._device
+        attrs = {}
+        if d.schedule:
+            today = __import__('datetime').date.today().weekday()  # Mon=0
+            # Warmup day: 0=Sun...6=Sat. Python weekday: Mon=0...Sun=6
+            warmup_today = (today + 1) % 7  # convert Mon=0→1, Sun=6→0
+            today_entry = next(
+                (s for s in d.schedule if str(s.get("day")) == str(warmup_today)),
+                None,
+            )
+            if today_entry:
+                attrs["schedule_today"] = today_entry
+            attrs["schedule_raw"] = d.schedule
+        return attrs
+
     async def async_set_temperature(self, **kwargs: Any) -> None:
         temperature = kwargs.get(ATTR_TEMPERATURE)
         if temperature is None:

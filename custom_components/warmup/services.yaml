@@ -59,3 +59,43 @@ fetch_schedule_diagnostics:
     entity:
       domain: climate
       integration: warmup
+
+copy_current_schedule_template:
+  name: Copy current schedule template
+  description: >
+    Logs the current room schedule as JSON to the HA log (WARNING level).
+    Copy the output and pass it to warmup.set_schedule.
+    No heating changes.
+  target:
+    entity:
+      domain: climate
+      integration: warmup
+
+set_schedule:
+  name: Set heating schedule
+  description: >
+    Writes a weekly heating schedule for the target room via the Warmup
+    V1 setProgramme API. Always run with dry_run=true first to validate
+    and log the payload. Set dry_run=false only after confirming the
+    dry-run payload is correct.
+    Schedule must be a list of 7 entries (one per day, day 0=Sun 6=Sat).
+    Each entry: {day, mode, type, node, value: [{start, end, temp}]}.
+    Temperatures as tenths-of-degrees strings (e.g. "220" = 22.0°C).
+  target:
+    entity:
+      domain: climate
+      integration: warmup
+  fields:
+    schedule:
+      name: Schedule
+      description: "List of 7 day entries. Get the format from copy_current_schedule_template."
+      required: true
+      selector:
+        object:
+    dry_run:
+      name: Dry run
+      description: "If true (default), validates and logs only — does not call the API."
+      required: false
+      default: true
+      selector:
+        boolean:

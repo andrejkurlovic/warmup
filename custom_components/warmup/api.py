@@ -24,13 +24,11 @@ _BASE_HEADERS: dict[str, str] = {
 _TOKEN_URL = "https://api.warmup.com/apps/app/v1"
 _GRAPHQL_URL = "https://apil.warmup.com/graphql"
 
-# schedule{} field removed — returned 409 on this account's API version.
-# Deferred until confirmed safe on a live account.
 _GRAPHQL_QUERY = (
     "query QUERY{ user{ allLocations: locations { id name locModeInt "
     "rooms{ id roomName "
     "runModeInt targetTemp currentTemp awayTemp comfortTemp cost energy fixedTemp "
-    "overrideTemp overrideDur roomModeInt sleepTemp "
+    "overrideTemp overrideDur roomModeInt sleepTemp schedule "
     "thermostat4ies{ id deviceSN "
     "minTemp maxTemp airTemp floor1Temp floor2Temp heatingTargetInt "
     "hasPolled isFaultAir isFaultFloor1 isFaultFloor2 } } } } }"
@@ -273,6 +271,20 @@ class WarmupAPI:
         if data.get("errors"):
             _log_api_failure("cancelOverride", _GRAPHQL_URL, body=str(data["errors"])[:500], has_token=True)
             raise WarmupError(f"cancelOverride GQL error: {data['errors']}")
+
+    async def set_schedule(self, room_id: str, schedule: list) -> None:
+        """Write a validated weekly schedule via V1 setProgramme."""
+        await self._post_control("setProgramme", {
+            "account": {"email": self._email, "token": self._token},
+            "request": {
+                "method": "setProgramme",
+                "roomId": room_id,
+                "type": 0,
+                "roomMode": "prog",
+                "fixed": {},
+                "schedule": schedule,
+            },
+        })
 
     async def _post_control(self, operation: str, body: dict[str, Any]) -> None:
         try:

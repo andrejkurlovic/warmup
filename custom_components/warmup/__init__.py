@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re as _re
 from datetime import datetime, timedelta
 
 import voluptuous as vol
@@ -24,6 +25,10 @@ _SERVICE_SET_OVERRIDE = "set_override"
 _SERVICE_CANCEL_OVERRIDE = "cancel_override"
 _SERVICE_SET_PROGRAMME = "set_programme"
 _SERVICE_FETCH_SCHEDULE = "fetch_schedule_diagnostics"
+_ATTR_SCHEDULE = "schedule"
+_ATTR_DRY_RUN = "dry_run"
+_SERVICE_COPY_SCHEDULE = "copy_current_schedule_template"
+_SERVICE_SET_SCHEDULE = "set_schedule"
 _SERVICE_SCHEMA = vol.Schema({
     vol.Required(ATTR_ENTITY_ID): cv.entity_ids,
     vol.Required(ATTR_TEMPERATURE): vol.Coerce(float),
@@ -32,6 +37,58 @@ _SERVICE_SCHEMA = vol.Schema({
 _SERVICE_CANCEL_SCHEMA = vol.Schema({
     vol.Required(ATTR_ENTITY_ID): cv.entity_ids,
 })
+
+_HM = _re.compile(r"^\d{2}:\d{2}$")
+
+
+def _validate_schedule(schedule: object, min_temp: float, max_temp: float) -> list:
+    """Validate and normalise a schedule list. Returns cleaned list or raises ValueError."""
+    if not isinstance(schedule, list) or len(schedule) != 7:
+        raise ValueError(
+            f"schedule must be a list of 7 day entries, got "
+            f"{type(schedule).__name__} len={len(schedule) if isinstance(schedule, list) else '?'}"
+        )
+    result = []
+    for entry in schedule:
+        day = int(entry["day"])
+        if not 0 <= day <= 6:
+            raise ValueError(f"day must be 0-6, got {day}")
+        periods = entry.get("value", [])
+        if not isinstance(periods, list) or not periods:
+            raise ValueError(f"day {day}: 'value' must be a non-empty list of periods")
+        cleaned_periods = []
+        prev_end = None
+        for p in periods:
+            start, end = p["start"], p["end"]
+            if not (_HM.match(start) and _HM.match(end)):
+                raise ValueError(f"day {day}: start/end must be HH:MM, got {start!r}/{end!r}")
+            if start >= end:
+                raise ValueError(f"day {day}: start {start} must be before end {end}")
+            if prev_end is not None and start < prev_end:
+                raise ValueError(
+                    f"day {day}: period {start}-{end} overlaps previous ending {prev_end}"
+                )
+            raw_temp = p.get("temp")
+            temp_c = int(raw_temp) / 10.0
+            if not (min_temp <= temp_c <= max_temp):
+                raise ValueError(
+                    f"day {day}: temp {temp_c}°C outside thermostat range {min_temp}-{max_temp}°C"
+                )
+            cleaned_periods.append({"start": start, "end": end, "temp": raw_temp})
+            prev_end = end
+        result.append({
+            "mode": str(entry.get("mode", "0")),
+            "type": str(entry.get("type", "0")),
+            "day": str(day),
+            "node": str(entry.get("node", "2")),
+            "value": cleaned_periods,
+        })
+    days_found = {int(e["day"]) for e in result}
+    if days_found != set(range(7)):
+        raise ValueError(
+            f"schedule must have exactly days 0-6, found {sorted(days_found)}"
+        )
+    return result
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -138,6 +195,98 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.services.async_register(
             DOMAIN, _SERVICE_FETCH_SCHEDULE, handle_fetch_schedule_diagnostics,
             schema=vol.Schema({vol.Required(ATTR_ENTITY_ID): cv.entity_ids}),
+        )
+
+    async def handle_copy_schedule_template(call: ServiceCall) -> None:
+        """Log the current schedule for the target room so user can copy it."""
+        import json as _json
+        entity_ids: list[str] = call.data[ATTR_ENTITY_ID]
+        ent_reg = er.async_get(hass)
+        matched = False
+        for entry_coordinator in hass.data[DOMAIN].values():
+            for sn, device in entry_coordinator.data.items():
+                eid = ent_reg.async_get_entity_id("climate", DOMAIN, f"warmup_{sn}")
+                if eid not in entity_ids:
+                    continue
+                matched = True
+                if not device.schedule:
+                    _LOGGER.warning(
+                        "WarmUp schedule template: no schedule data for %s — "
+                        "is the room in programme mode?",
+                        eid,
+                    )
+                else:
+                    _LOGGER.warning(
+                        "WarmUp schedule template for %s (copy this to use with warmup.set_schedule):\n%s",
+                        eid, _json.dumps(device.schedule, indent=2),
+                    )
+        if not matched:
+            _LOGGER.warning(
+                "WarmUp schedule template: no matching WarmUp device for %s", entity_ids
+            )
+
+    if not hass.services.has_service(DOMAIN, _SERVICE_COPY_SCHEDULE):
+        hass.services.async_register(
+            DOMAIN, _SERVICE_COPY_SCHEDULE, handle_copy_schedule_template,
+            schema=vol.Schema({vol.Required(ATTR_ENTITY_ID): cv.entity_ids}),
+        )
+
+    async def handle_set_schedule(call: ServiceCall) -> None:
+        import json as _json
+        entity_ids: list[str] = call.data[ATTR_ENTITY_ID]
+        raw_schedule = call.data[_ATTR_SCHEDULE]
+        dry_run: bool = call.data.get(_ATTR_DRY_RUN, True)
+        ent_reg = er.async_get(hass)
+        matched = False
+        for entry_coordinator in hass.data[DOMAIN].values():
+            for sn, device in entry_coordinator.data.items():
+                eid = ent_reg.async_get_entity_id("climate", DOMAIN, f"warmup_{sn}")
+                if eid not in entity_ids:
+                    continue
+                matched = True
+                try:
+                    validated = _validate_schedule(raw_schedule, device.min_temp, device.max_temp)
+                except (ValueError, KeyError, TypeError) as exc:
+                    _LOGGER.error(
+                        "WarmUp set_schedule: validation FAILED for %s — %s", eid, exc
+                    )
+                    raise ServiceValidationError(str(exc)) from exc
+                sanitized = _json.dumps(validated, separators=(",", ":"))
+                if dry_run:
+                    _LOGGER.warning(
+                        "WarmUp set_schedule DRY-RUN for %s (room_id=%s) — "
+                        "payload that would be sent: %s",
+                        eid, device.room_id, sanitized,
+                    )
+                else:
+                    _LOGGER.warning(
+                        "WarmUp set_schedule LIVE for %s (room_id=%s) — sending payload: %s",
+                        eid, device.room_id, sanitized,
+                    )
+                    try:
+                        await entry_coordinator.api.set_schedule(device.room_id, validated)
+                    except WarmupError as exc:
+                        _LOGGER.error(
+                            "WarmUp set_schedule: API call FAILED for %s — %s", eid, exc
+                        )
+                        raise ServiceValidationError(str(exc)) from exc
+                    await entry_coordinator.async_request_refresh()
+                    _LOGGER.warning(
+                        "WarmUp set_schedule: SUCCESS for %s — coordinator refreshed", eid
+                    )
+        if not matched:
+            _LOGGER.warning(
+                "WarmUp set_schedule: no matching WarmUp device for %s", entity_ids
+            )
+
+    if not hass.services.has_service(DOMAIN, _SERVICE_SET_SCHEDULE):
+        hass.services.async_register(
+            DOMAIN, _SERVICE_SET_SCHEDULE, handle_set_schedule,
+            schema=vol.Schema({
+                vol.Required(ATTR_ENTITY_ID): cv.entity_ids,
+                vol.Required(_ATTR_SCHEDULE): list,
+                vol.Optional(_ATTR_DRY_RUN, default=True): bool,
+            }),
         )
 
     return True
