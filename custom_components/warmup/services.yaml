@@ -31,3 +31,16 @@ cancel_override:
     entity:
       domain: climate
       integration: warmup
+
+set_programme:
+  name: Set programme schedule (experimental — not live-tested)
+  description: >
+    EXPERIMENTAL. Sets the weekly heating programme schedule for a room via the
+    Warmup V1 REST API. The schedule body format is fully specified but has not
+    been live-tested against a real account. Use with caution. This service
+    currently raises an error to prevent accidental use until live testing is
+    confirmed.
+  target:
+    entity:
+      domain: climate
+      integration: warmup

@@ -27,7 +27,9 @@ _GRAPHQL_QUERY = (
     "query QUERY{ user{ allLocations: locations { id name locModeInt "
     "rooms{ id roomName "
     "runModeInt targetTemp currentTemp awayTemp comfortTemp cost energy fixedTemp "
-    "overrideTemp overrideDur roomModeInt sleepTemp thermostat4ies{ id deviceSN "
+    "overrideTemp overrideDur roomModeInt sleepTemp "
+    "schedule{ type mode day node value{ start end temp{ temp } } } "
+    "thermostat4ies{ id deviceSN "
     "minTemp maxTemp airTemp floor1Temp floor2Temp heatingTargetInt "
     "hasPolled isFaultAir isFaultFloor1 isFaultFloor2 } } } } }"
 )

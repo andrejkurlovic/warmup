@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "title": "Connect to Warmup 4iE+",
+        "title": "Connect to WarmUp Comfort+",
         "description": "Enter your Warmup account credentials from my.warmup.com.",
         "data": {
           "username": "Email address",
@@ -10,7 +10,7 @@
         }
       },
       "reauth_confirm": {
-        "title": "Re-authenticate Warmup 4iE+",
+        "title": "Re-authenticate WarmUp Comfort+",
         "description": "Your Warmup session expired. Please enter your credentials again.",
         "data": {
           "username": "Email address",
@@ -36,6 +36,8 @@
       "comfort_temperature": { "name": "Comfort temperature" },
       "sleep_temperature": { "name": "Sleep temperature" },
       "override_temperature": { "name": "Override temperature" },
+      "override_remaining": { "name": "Override remaining" },
+      "floor_temperature_2": { "name": "Floor temperature 2" },
       "energy": { "name": "Energy" },
       "cost": { "name": "Cost" }
     },
@@ -53,7 +55,8 @@
     "binary_sensor": {
       "fault_air": { "name": "Air sensor fault" },
       "fault_floor1": { "name": "Floor sensor 1 fault" },
-      "fault_floor2": { "name": "Floor sensor 2 fault" }
+      "fault_floor2": { "name": "Floor sensor 2 fault" },
+      "connected": { "name": "Connected" }
     }
   }
 }

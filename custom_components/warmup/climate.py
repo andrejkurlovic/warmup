@@ -1,6 +1,7 @@
 """Climate platform for Warmup thermostats."""
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from homeassistant.components.climate import ClimateEntity, ClimateEntityFeature, HVACAction, HVACMode
@@ -129,6 +130,14 @@ class WarmupClimate(CoordinatorEntity[WarmupCoordinator], ClimateEntity):
         elif preset_mode == PRESET_AWAY:
             await self.coordinator.api.set_location_mode(self._device.location_id, "frost")
         await self.coordinator.async_request_refresh()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose schedule as a JSON diagnostic attribute (read-only)."""
+        schedule = self._device.schedule
+        if schedule is not None:
+            return {"schedule": schedule}
+        return {}
 
     async def async_turn_on(self) -> None:
         await self.async_set_hvac_mode(HVACMode.AUTO)

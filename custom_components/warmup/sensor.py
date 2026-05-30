@@ -11,7 +11,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import EntityCategory, UnitOfEnergy, UnitOfTemperature, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -23,7 +23,9 @@ from .coordinator import WarmupCoordinator, WarmupDevice
 
 @dataclass(frozen=True, kw_only=True)
 class WarmupSensorDescription(SensorEntityDescription):
-    value_fn: Callable[[WarmupDevice], float | str | None] = lambda _: None
+    value_fn: Callable[[WarmupDevice], float | str | int | None] = lambda _: None
+    # When set, the sensor is only available if this guard returns True
+    available_fn: Callable[[WarmupDevice], bool] | None = None
 
 
 _SENSORS: tuple[WarmupSensorDescription, ...] = (
@@ -79,19 +81,50 @@ _SENSORS: tuple[WarmupSensorDescription, ...] = (
         entity_registry_enabled_default=False,
         value_fn=lambda d: d.override_temperature,
     ),
+    # 4d — override remaining duration (diagnostic)
+    WarmupSensorDescription(
+        key="override_remaining",
+        translation_key="override_remaining",
+        device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda d: d.override_duration_mins,
+    ),
+    # 4e — floor sensor 2 temperature (only available on dual-zone thermostats)
+    WarmupSensorDescription(
+        key="floor_temperature_2",
+        translation_key="floor_temperature_2",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda d: d.floor_temperature_2,
+        available_fn=lambda d: d.floor_temperature_2 > 0,
+    ),
+    # 4f — energy with proper metadata
     WarmupSensorDescription(
         key="energy",
         translation_key="energy",
-        state_class=SensorStateClass.MEASUREMENT,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
-        value_fn=lambda d: d.energy,
+        value_fn=lambda d: float(d.energy) if d.energy not in (None, "", "0") else None,
     ),
+    # 4f — cost with proper metadata (GBP; matches UK default Warmup account)
     WarmupSensorDescription(
         key="cost",
         translation_key="cost",
-        state_class=SensorStateClass.MEASUREMENT,
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement="GBP",
+        entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
-        value_fn=lambda d: d.cost,
+        value_fn=lambda d: float(d.cost) if d.cost not in (None, "", "0") else None,
     ),
 )
 
@@ -135,5 +168,12 @@ class WarmupSensor(CoordinatorEntity[WarmupCoordinator], SensorEntity):
         )
 
     @property
-    def native_value(self) -> float | str | None:
+    def available(self) -> bool:
+        guard = self.entity_description.available_fn
+        if guard is not None:
+            return guard(self._device)
+        return super().available
+
+    @property
+    def native_value(self) -> float | str | int | None:
         return self.entity_description.value_fn(self._device)

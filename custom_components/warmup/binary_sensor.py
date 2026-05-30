@@ -47,6 +47,14 @@ _FAULT_SENSORS: tuple[WarmupBinarySensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda d: d.is_fault_floor2,
     ),
+    # 4g — connectivity diagnostic: thermostat has successfully polled the cloud
+    WarmupBinarySensorDescription(
+        key="connected",
+        translation_key="connected",
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda d: d.has_polled,
+    ),
 )
 
 

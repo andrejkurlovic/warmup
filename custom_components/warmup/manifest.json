@@ -1,6 +1,6 @@
 {
   "domain": "warmup",
-  "name": "Warmup 4iE+",
+  "name": "WarmUp Comfort+",
   "codeowners": ["@andrejkurlovic"],
   "config_flow": true,
   "dependencies": [],

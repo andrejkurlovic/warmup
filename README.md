@@ -1,4 +1,4 @@
-# Warmup — Home Assistant Integration
+# WarmUp Comfort+ — Home Assistant Integration
 
 A modern, fully async Home Assistant integration for [Warmup](https://www.warmup.co.uk/) underfloor heating thermostats (4IE, 6IE). Configurable entirely through the UI — no YAML required.
 

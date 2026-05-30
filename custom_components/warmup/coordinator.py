@@ -48,6 +48,7 @@ class WarmupDevice:
     is_fault_air: bool = False
     is_fault_floor1: bool = False
     is_fault_floor2: bool = False
+    schedule: list | None = None
 
 
 class WarmupCoordinator(DataUpdateCoordinator[dict[str, WarmupDevice]]):
@@ -100,5 +101,7 @@ class WarmupCoordinator(DataUpdateCoordinator[dict[str, WarmupDevice]]):
                     device.is_fault_air = bool(thermostat.get("isFaultAir", False))
                     device.is_fault_floor1 = bool(thermostat.get("isFaultFloor1", False))
                     device.is_fault_floor2 = bool(thermostat.get("isFaultFloor2", False))
+                    # Schedule read (Phase 1 optional, diagnostic, read-only)
+                    device.schedule = room.get("schedule") or None
                     devices[sn] = device
         return devices

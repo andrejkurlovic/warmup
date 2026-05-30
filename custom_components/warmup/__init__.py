@@ -8,6 +8,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_ID, ATTR_TEMPERATURE, CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
@@ -21,6 +22,7 @@ _PLATFORMS = [Platform.CLIMATE, Platform.SENSOR, Platform.SELECT, Platform.BINAR
 _ATTR_UNTIL = "until"
 _SERVICE_SET_OVERRIDE = "set_override"
 _SERVICE_CANCEL_OVERRIDE = "cancel_override"
+_SERVICE_SET_PROGRAMME = "set_programme"
 _SERVICE_SCHEMA = vol.Schema({
     vol.Required(ATTR_ENTITY_ID): cv.entity_ids,
     vol.Required(ATTR_TEMPERATURE): vol.Coerce(float),
@@ -67,6 +69,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if not hass.services.has_service(DOMAIN, _SERVICE_CANCEL_OVERRIDE):
         hass.services.async_register(DOMAIN, _SERVICE_CANCEL_OVERRIDE, handle_cancel_override, schema=_SERVICE_CANCEL_SCHEMA)
+
+    async def handle_set_programme(call: ServiceCall) -> None:
+        """Stub: schedule write is deferred — exact API body not live-tested."""
+        raise ServiceValidationError(
+            "warmup.set_programme is experimental and has not been live-tested. "
+            "Use the Warmup app to edit schedules. "
+            "Remove this guard once the API body format is confirmed against a real account."
+        )
+
+    if not hass.services.has_service(DOMAIN, _SERVICE_SET_PROGRAMME):
+        hass.services.async_register(
+            DOMAIN, _SERVICE_SET_PROGRAMME, handle_set_programme,
+            schema=vol.Schema({vol.Required(ATTR_ENTITY_ID): cv.entity_ids}),
+        )
 
     return True
 
