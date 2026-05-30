@@ -298,11 +298,16 @@ class WarmupAPI:
                 for p in periods
             ]
 
+        # Temperature.java: int mTemp (tenths). Serializes as integer, not string.
+        ct = int(comfort_temp)
+        st = int(setback_temp)
+        sl = int(sleep_temp)
+
         for key, days in pattern_groups.items():
             v1_sched = {
-                "comfortTemp": {"temp": comfort_temp},
-                "setbackTemp": {"temp": setback_temp},
-                "sleepTemp": {"temp": sleep_temp},
+                "comfortTemp": {"temp": ct},
+                "setbackTemp": {"temp": st},
+                "sleepTemp": {"temp": sl},
                 "sleepActive": "0",
                 "days": sorted(days),
                 "nodes": pattern_nodes[key],
