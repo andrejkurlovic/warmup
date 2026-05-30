@@ -232,7 +232,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
     async def handle_set_schedule(call: ServiceCall) -> None:
-        import json as _json
         entity_ids: list[str] = call.data[ATTR_ENTITY_ID]
         raw_schedule = call.data[_ATTR_SCHEDULE]
         dry_run: bool = call.data.get(_ATTR_DRY_RUN, True)
@@ -250,52 +249,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     _LOGGER.error("WarmUp set_schedule: validation FAILED for %s — %s", eid, exc)
                     raise ServiceValidationError(str(exc)) from exc
 
-                # Temperature setpoints for the V1 ProgramSchedule wrapper.
-                # comfortTemp/setbackTemp/sleepTemp are device-level setpoints from GQL;
-                # they frame the schedule but period temps in nodes[] are the effective values.
-                comfort_temp = str(int(device.comfort_temperature * 10)) if device.comfort_temperature else "200"
-                setback_temp = str(int(device.away_temperature * 10)) if device.away_temperature else "160"
-                sleep_temp   = str(int(device.sleep_temperature * 10)) if device.sleep_temperature else "160"
+                # 3-digit zero-padded tenths strings required by TemperatureJsonAdapter.
+                comfort_temp = f"{int(device.comfort_temperature * 10):03d}" if device.comfort_temperature else "200"
+                setback_temp = f"{int(device.away_temperature * 10):03d}" if device.away_temperature else "160"
+                sleep_temp   = f"{int(device.sleep_temperature * 10):03d}" if device.sleep_temperature else "160"
 
-                if dry_run:
-                    # Show the V1 format that would be sent (one entry per day-pattern group)
-                    v1_preview = []
-                    _pattern_groups: dict[tuple, list[int]] = {}
-                    _pattern_nodes: dict[tuple, list] = {}
-                    for entry in validated:
-                        periods = entry.get("value", [])
-                        key = tuple((p["start"], p["end"], p["temp"]) for p in periods)
-                        _pattern_groups.setdefault(key, []).append(int(entry["day"]))
-                        _pattern_nodes[key] = [{"start": p["start"], "end": p["end"], "temp": p["temp"]} for p in periods]
-                    for key, days in _pattern_groups.items():
-                        v1_preview.append({
-                            "days": sorted(days),
-                            "comfortTemp": {"temp": comfort_temp},
-                            "setbackTemp": {"temp": setback_temp},
-                            "sleepTemp": {"temp": sleep_temp},
-                            "nodes": _pattern_nodes[key],
-                        })
-                    _LOGGER.warning(
-                        "WarmUp set_schedule DRY-RUN for %s (room_id=%s) — "
-                        "%d day-group(s) would be sent:\n%s",
-                        eid, device.room_id, len(v1_preview),
-                        _json.dumps(v1_preview, indent=2),
+                _LOGGER.warning(
+                    "WarmUp set_schedule %s for %s (room_id=%s) — "
+                    "comfortTemp=%s setbackTemp=%s sleepTemp=%s",
+                    "DRY RUN" if dry_run else "LIVE",
+                    eid, device.room_id, comfort_temp, setback_temp, sleep_temp,
+                )
+                try:
+                    await entry_coordinator.api.set_schedule(
+                        device.room_id, validated,
+                        comfort_temp, setback_temp, sleep_temp,
+                        dry_run=dry_run,
                     )
-                else:
-                    _LOGGER.warning(
-                        "WarmUp set_schedule LIVE for %s (room_id=%s) — calling setProgramme",
-                        eid, device.room_id,
-                    )
-                    try:
-                        await entry_coordinator.api.set_schedule(
-                            device.room_id, validated,
-                            comfort_temp, setback_temp, sleep_temp,
-                        )
-                    except WarmupError as exc:
-                        _LOGGER.error("WarmUp set_schedule: API call FAILED for %s — %s", eid, exc)
-                        raise ServiceValidationError(str(exc)) from exc
+                except WarmupError as exc:
+                    _LOGGER.error("WarmUp set_schedule: API call FAILED for %s — %s", eid, exc)
+                    raise ServiceValidationError(str(exc)) from exc
+
+                if not dry_run:
                     await entry_coordinator.async_request_refresh()
-                    _LOGGER.warning("WarmUp set_schedule: SUCCESS for %s — coordinator refreshed", eid)
+                    _LOGGER.warning(
+                        "WarmUp set_schedule: SUCCESS for %s — coordinator refreshed", eid
+                    )
         if not matched:
             _LOGGER.warning(
                 "WarmUp set_schedule: no matching WarmUp device for %s", entity_ids
