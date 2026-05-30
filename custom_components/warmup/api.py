@@ -21,7 +21,7 @@ _BASE_HEADERS: dict[str, str] = {
 }
 
 _TOKEN_URL = "https://api.warmup.com/apps/app/v1"
-_GRAPHQL_URL = "https://apil.warmup.com/graphql"
+_GRAPHQL_URL = "https://api.warmup.com/graphql"
 
 _GRAPHQL_QUERY = (
     "query QUERY{ user{ allLocations: locations { id name locModeInt "
