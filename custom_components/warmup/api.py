@@ -24,11 +24,23 @@ _TOKEN_URL = "https://api.warmup.com/apps/app/v1"
 _GRAPHQL_URL = "https://apil.warmup.com/graphql"
 
 _GRAPHQL_QUERY = (
-    "query QUERY{ user{ allLocations: locations { id name rooms{ id roomName "
+    "query QUERY{ user{ allLocations: locations { id name locModeInt "
+    "rooms{ id roomName "
     "runModeInt targetTemp currentTemp awayTemp comfortTemp cost energy fixedTemp "
     "overrideTemp overrideDur roomModeInt sleepTemp thermostat4ies{ id deviceSN "
-    "minTemp maxTemp airTemp floor1Temp floor2Temp heatingTargetInt } } } } }"
+    "minTemp maxTemp airTemp floor1Temp floor2Temp heatingTargetInt "
+    "hasPolled isFaultAir isFaultFloor1 isFaultFloor2 } } } } }"
 )
+
+# GQL mutation to cancel an active override
+_CANCEL_OVERRIDE_MUTATION = (
+    "mutation QUERY{{room: cancelOverride(lid:{loc_id},rid:{room_id})"
+    "{{ runModeInt targetTemp overrideTemp overrideDur }}}}"
+)
+
+# locModeInt → string mapping (LocationGQL.java)
+LOC_MODE: dict[int, str] = {0: "auto", 1: "off", 2: "frost", 3: "timer"}
+LOC_MODE_STR: dict[str, int] = {v: k for k, v in LOC_MODE.items()}
 
 RUN_MODE: dict[int, str] = {
     0: "off",
@@ -89,9 +101,12 @@ class WarmupAPI:
             if resp.status != 200:
                 raise WarmupError(f"HTTP {resp.status}")
             data = await resp.json(content_type=None)
-        if data.get("status") != "success":
-            raise WarmupError(f"GraphQL error: {data}")
-        return data["data"]["user"]["allLocations"]
+        if data.get("errors"):
+            raise WarmupError(f"GraphQL error: {data['errors']}")
+        try:
+            return data["data"]["user"]["allLocations"]
+        except (KeyError, TypeError) as exc:
+            raise WarmupError(f"Unexpected GQL response: {data}") from exc
 
     async def set_location_mode(self, location_id: str, mode: str) -> None:
         """Set a location-level mode (e.g. 'frost', 'off')."""
@@ -129,6 +144,23 @@ class WarmupAPI:
                 "type": 3,
             },
         })
+
+    async def cancel_override(self, location_id: str, room_id: str) -> None:
+        """Cancel an active temperature override via GQL mutation (CTRL-3)."""
+        if self._token is None:
+            raise WarmupError("Not authenticated")
+        mutation = _CANCEL_OVERRIDE_MUTATION.format(
+            loc_id=location_id, room_id=room_id
+        )
+        headers = {**_BASE_HEADERS, "warmup-authorization": str(self._token)}
+        async with self._session.post(
+            _GRAPHQL_URL, headers=headers, json={"query": mutation}
+        ) as resp:
+            if resp.status != 200:
+                raise WarmupError(f"cancelOverride HTTP {resp.status}")
+            data = await resp.json(content_type=None)
+        if data.get("errors"):
+            raise WarmupError(f"cancelOverride GQL error: {data['errors']}")
 
     async def _post_control(self, body: dict[str, Any]) -> None:
         async with self._session.post(_TOKEN_URL, headers=_BASE_HEADERS, json=body) as resp:

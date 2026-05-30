@@ -16,14 +16,18 @@ from .const import DOMAIN
 from .coordinator import WarmupCoordinator
 
 _LOGGER = logging.getLogger(__name__)
-_PLATFORMS = [Platform.CLIMATE, Platform.SENSOR]
+_PLATFORMS = [Platform.CLIMATE, Platform.SENSOR, Platform.SELECT, Platform.BINARY_SENSOR]
 
 _ATTR_UNTIL = "until"
 _SERVICE_SET_OVERRIDE = "set_override"
+_SERVICE_CANCEL_OVERRIDE = "cancel_override"
 _SERVICE_SCHEMA = vol.Schema({
     vol.Required(ATTR_ENTITY_ID): cv.entity_ids,
     vol.Required(ATTR_TEMPERATURE): vol.Coerce(float),
     vol.Optional(_ATTR_UNTIL): cv.string,
+})
+_SERVICE_CANCEL_SCHEMA = vol.Schema({
+    vol.Required(ATTR_ENTITY_ID): cv.entity_ids,
 })
 
 
@@ -51,6 +55,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if not hass.services.has_service(DOMAIN, _SERVICE_SET_OVERRIDE):
         hass.services.async_register(DOMAIN, _SERVICE_SET_OVERRIDE, handle_set_override, schema=_SERVICE_SCHEMA)
+
+    async def handle_cancel_override(call: ServiceCall) -> None:
+        entity_ids: list[str] = call.data[ATTR_ENTITY_ID]
+        for entry_coordinator in hass.data[DOMAIN].values():
+            for sn, device in entry_coordinator.data.items():
+                climate_entity_id = f"climate.warmup_{sn.lower()}"
+                if climate_entity_id in entity_ids:
+                    await entry_coordinator.api.cancel_override(device.location_id, device.room_id)
+                    await entry_coordinator.async_request_refresh()
+
+    if not hass.services.has_service(DOMAIN, _SERVICE_CANCEL_OVERRIDE):
+        hass.services.async_register(DOMAIN, _SERVICE_CANCEL_OVERRIDE, handle_cancel_override, schema=_SERVICE_CANCEL_SCHEMA)
 
     return True
 

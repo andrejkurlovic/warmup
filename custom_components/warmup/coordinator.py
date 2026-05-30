@@ -8,7 +8,7 @@ from datetime import timedelta
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import WarmupAPI, WarmupError, RUN_MODE, ROOM_MODE, HEATING_TARGET
+from .api import WarmupAPI, WarmupError, RUN_MODE, ROOM_MODE, HEATING_TARGET, LOC_MODE
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -43,6 +43,11 @@ class WarmupDevice:
     run_mode: str | None = None
     room_mode: str | None = None
     heating_target: str | None = None
+    location_mode: str = "auto"
+    has_polled: bool = False
+    is_fault_air: bool = False
+    is_fault_floor1: bool = False
+    is_fault_floor2: bool = False
 
 
 class WarmupCoordinator(DataUpdateCoordinator[dict[str, WarmupDevice]]):
@@ -75,8 +80,8 @@ class WarmupCoordinator(DataUpdateCoordinator[dict[str, WarmupDevice]]):
                     device.current_temperature = int(room["currentTemp"]) / 10
                     device.min_temp = int(thermostat["minTemp"]) / 10
                     device.max_temp = int(thermostat["maxTemp"]) / 10
-                    device.floor_temperature = int(thermostat["floor1Temp"]) / 10
-                    device.floor_temperature_2 = int(thermostat["floor2Temp"]) / 10
+                    device.floor_temperature = int(thermostat.get("floor1Temp") or 0) / 10
+                    device.floor_temperature_2 = int(thermostat.get("floor2Temp") or 0) / 10
                     device.air_temperature = int(thermostat["airTemp"]) / 10
                     device.away_temperature = int(room["awayTemp"]) / 10
                     device.comfort_temperature = int(room["comfortTemp"]) / 10
@@ -89,5 +94,11 @@ class WarmupCoordinator(DataUpdateCoordinator[dict[str, WarmupDevice]]):
                     device.run_mode = RUN_MODE.get(room["runModeInt"])
                     device.room_mode = ROOM_MODE.get(room["roomModeInt"])
                     device.heating_target = HEATING_TARGET.get(thermostat["heatingTargetInt"])
+                    # New fields from enhanced GQL query (use .get() for safety)
+                    device.location_mode = LOC_MODE.get(location.get("locModeInt", 0), "auto")
+                    device.has_polled = bool(thermostat.get("hasPolled", False))
+                    device.is_fault_air = bool(thermostat.get("isFaultAir", False))
+                    device.is_fault_floor1 = bool(thermostat.get("isFaultFloor1", False))
+                    device.is_fault_floor2 = bool(thermostat.get("isFaultFloor2", False))
                     devices[sn] = device
         return devices

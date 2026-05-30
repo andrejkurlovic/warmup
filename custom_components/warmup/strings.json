@@ -38,6 +38,22 @@
       "override_temperature": { "name": "Override temperature" },
       "energy": { "name": "Energy" },
       "cost": { "name": "Cost" }
+    },
+    "select": {
+      "location_mode": {
+        "name": "Location mode",
+        "state": {
+          "auto": "Auto",
+          "off": "Off",
+          "frost": "Frost protection",
+          "timer": "Timer"
+        }
+      }
+    },
+    "binary_sensor": {
+      "fault_air": { "name": "Air sensor fault" },
+      "fault_floor1": { "name": "Floor sensor 1 fault" },
+      "fault_floor2": { "name": "Floor sensor 2 fault" }
     }
   }
 }

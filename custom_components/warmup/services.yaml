@@ -23,3 +23,11 @@ set_override:
       example: "14:00"
       selector:
         text:
+
+cancel_override:
+  name: Cancel temperature override
+  description: Cancel an active temperature override and return to the normal programme.
+  target:
+    entity:
+      domain: climate
+      integration: warmup
