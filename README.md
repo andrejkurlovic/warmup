@@ -113,11 +113,126 @@ Example:
 ```yaml
 service: warmup.set_override
 target:
-  entity_id: climate.warmup_abc123
+  entity_id: climate.bathroom
 data:
   temperature: 22.5
   until: "14:00"
 ```
+
+---
+
+## Schedule read
+
+Every 60-second poll, the integration fetches the weekly programme schedule from the Warmup cloud and exposes it on each climate entity:
+
+| Attribute | Contents |
+|-----------|----------|
+| `schedule_raw` | Full 7-day programme list as returned by the Warmup API |
+| `schedule_today` | Today's entry extracted from `schedule_raw` |
+
+These are visible in **Developer Tools → States** and usable in template sensors. They are read-only via polling. To write a schedule, use `warmup.set_schedule`.
+
+---
+
+## Service: `warmup.copy_current_schedule_template`
+
+Logs the current room schedule to the HA system log in a format ready to paste into `warmup.set_schedule`. No API writes, no state changes.
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `entity_id` | Yes | Climate entity to read the schedule from |
+
+```yaml
+service: warmup.copy_current_schedule_template
+data:
+  entity_id: climate.bathroom
+```
+
+Check **Settings → System → Logs** for a `WARNING` entry from `custom_components.warmup` containing the schedule JSON.
+
+---
+
+## Service: `warmup.set_schedule`
+
+Write a weekly programme schedule to the Warmup cloud for one room.
+
+> **Warning:** Each call fully replaces the programme for the days in that group. Days that share identical time-window patterns are sent in one `setProgramme` call — matching Warmup Android app behaviour. Only use this on rooms in `auto` (programme) mode.
+
+**`dry_run` defaults to `true`** — no API call is made unless you explicitly pass `dry_run: false`. Always verify the dry-run log before live-writing.
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `entity_id` | Yes | — | Climate entity to write the schedule to |
+| `schedule` | Yes | — | List of exactly 7 day entries (`day` 0=Sunday … 6=Saturday) |
+| `dry_run` | No | `true` | `true` = log payload only; `false` = send to API |
+
+**Recommended workflow:**
+
+1. Call `warmup.copy_current_schedule_template` → copy the logged JSON
+2. Edit times/temperatures as needed
+3. Call `warmup.set_schedule` with `dry_run: true` → inspect the log output
+4. Call `warmup.set_schedule` with `dry_run: false` to commit
+
+**Safe example** (write back the existing schedule unchanged, dry-run first):
+
+```yaml
+service: warmup.set_schedule
+data:
+  entity_id: climate.bathroom
+  dry_run: true          # set to false only after confirming the dry-run log
+  schedule:
+    - day: "0"           # Sunday
+      mode: "0"
+      type: "0"
+      node: "2"
+      value:
+        - {start: "07:00", end: "11:00", temp: "220"}
+        - {start: "18:00", end: "23:00", temp: "200"}
+    - day: "1"           # Monday
+      mode: "0"
+      type: "0"
+      node: "2"
+      value:
+        - {start: "06:00", end: "08:00", temp: "220"}
+        - {start: "19:00", end: "23:00", temp: "200"}
+    - day: "2"           # Tuesday (same as Monday)
+      mode: "0"
+      type: "0"
+      node: "2"
+      value:
+        - {start: "06:00", end: "08:00", temp: "220"}
+        - {start: "19:00", end: "23:00", temp: "200"}
+    - day: "3"           # Wednesday
+      mode: "0"
+      type: "0"
+      node: "2"
+      value:
+        - {start: "06:00", end: "08:00", temp: "220"}
+        - {start: "19:00", end: "23:00", temp: "200"}
+    - day: "4"           # Thursday
+      mode: "0"
+      type: "0"
+      node: "2"
+      value:
+        - {start: "06:00", end: "08:00", temp: "220"}
+        - {start: "19:00", end: "23:00", temp: "200"}
+    - day: "5"           # Friday
+      mode: "0"
+      type: "0"
+      node: "2"
+      value:
+        - {start: "06:00", end: "08:00", temp: "220"}
+        - {start: "19:00", end: "23:00", temp: "200"}
+    - day: "6"           # Saturday
+      mode: "0"
+      type: "0"
+      node: "2"
+      value:
+        - {start: "07:00", end: "11:00", temp: "220"}
+        - {start: "18:00", end: "23:00", temp: "200"}
+```
+
+`temp` values are tenths-of-a-degree strings: `"220"` = 22.0 °C, `"185"` = 18.5 °C.
 
 ---
 

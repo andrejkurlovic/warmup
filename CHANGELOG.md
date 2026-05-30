@@ -10,33 +10,40 @@ and what issues you might face.
 The most recent versions come first, and the Release Versions 
 are based on date using format YYYY.M.D (no leading zeroes)
 
-## Unreleased
+## 2026.5.0 release
 
-Recent features from development that have not been formally released yet:
+Complete rewrite of the integration as WarmUp Comfort+. Modern async architecture,
+full sensor coverage, schedule read/write, and fault indicators.
 
 ### Added
 
-* 
+* Async `DataUpdateCoordinator` polling every 60 seconds
+* GUI config flow — no `configuration.yaml` needed
+* Re-authentication flow
+* Climate entity: `heat` / `auto` / `off` modes, `home` / `away` presets
+* Sensor entities: floor temp, air temp, away/comfort/sleep/override/fixed temperatures, energy, cost
+* Location mode `select` entity (auto / off / frost / timer)
+* Fault indicator `binary_sensor` entities (air sensor, floor sensor 1 & 2)
+* `warmup.cancel_override` service via GQL `cancelOverride` mutation
+* Schedule read: `schedule_raw` and `schedule_today` attributes on climate entities (GQL)
+* `warmup.fetch_schedule_diagnostics` — probe schedule for a room without affecting polling
+* `warmup.copy_current_schedule_template` — log current schedule to HA log for editing
+* `warmup.set_schedule` — write weekly programme via V1 `setProgramme` API
+  - Android-proven payload shape (decompiled from Android app v1.9.12)
+  - Groups days by identical time-window pattern (matching Android app behaviour)
+  - `dry_run: true` default — logs payload without making any API call
+  - Live-tested against Warmup 4IE, confirmed no HTTP 409 / errorCode 191
 
 ### Changed
 
-* 
+* Removed legacy synchronous warmup4ie library dependency
+* All API calls use HA's shared aiohttp session
 
 ### Fixed
 
-* 
-
-### Documented
-
-* 
-
-### Deprecated
-
-* 
-
-### Removed
-
-* 
+* Schedule write payload: `comfortTemp`/`setbackTemp`/`sleepTemp` must be 3-digit string
+  scalars, not objects; `days` must be enum name strings not integers; `nodes[].temp`
+  must be empty string; `sleepActive` must be `"1"` (all proven by Android decompilation)
 
 
 ## 2024.3.6 release
